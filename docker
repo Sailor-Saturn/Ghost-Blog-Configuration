@@ -1,0 +1,80 @@
+version: '3.9'
+services:
+  ghost:
+    container_name: ghost
+    image: ghost:5-alpine
+    restart: always
+    networks: 
+      - ghost
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck: 
+      test: ["CMD", "wget", "-q", "--spider", "--header", "X-Forwarded-Proto: https", "http://127.0.0.1:2368"]
+      timeout: 5s
+      retries: 10
+    environment:
+      database__client: mysql
+      database__connection__host: db
+      database__connection__user: ghost_user
+      database__connection__password: ${MYSQL_PASSWORD}
+      database__connection__database: ghost
+      url: https://yourwebsite.com
+      NODE_ENV: production
+    volumes:
+      - ghost:/var/lib/ghost/content:rw
+  db:
+    container_name: mysql
+    image: mysql:8
+    restart: always
+    networks: 
+      - ghost
+    healthcheck:
+      test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+      timeout: 5s
+      retries: 10
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: ghost
+      MYSQL_USER: ghost_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db:/var/lib/mysql:rw
+  nginx:
+    container_name: nginx
+    image: nginx:1.21.6-alpine
+    ports:
+      - 80:80
+      - 443:443
+    restart: always
+    depends_on:
+      ghost:
+        condition: service_healthy
+    networks: 
+      - ghost
+    healthcheck:
+      test: ["CMD", "curl", "-L", "https://127.0.0.1:443", "--insecure"]
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./certbot:/etc/nginx/ssl/certbot:ro
+      - ./nginx/conf/app.conf:/etc/nginx/conf.d/app.conf:ro
+      - ./nginx/conf/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /var/log/nginx:/var/logs/nginx:rw
+      - ./certbot/www/:/var/www/certbot:ro
+  
+  certbot:
+    container_name: certbot
+    image: certbot/certbot:1.21.0
+    networks: 
+      - ghost
+    volumes:
+      - ./certbot/www/:/var/www/certbot:rw
+      - ./certbot/conf/:/etc/letsencrypt:rw
+  
+volumes:
+  ghost:
+  db:
+networks:
+  ghost:
+    driver: bridge
